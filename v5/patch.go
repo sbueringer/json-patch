@@ -110,11 +110,11 @@ func newRawMessage(buf []byte) *json.RawMessage {
 func (n *lazyNode) MarshalJSON() ([]byte, error) {
 	switch n.which {
 	case eRaw:
-		return json.Marshal(n.raw)
+		return jsonIter.Marshal(n.raw)
 	case eDoc:
-		return json.Marshal(n.doc)
+		return jsonIter.Marshal(n.doc)
 	case eAry:
-		return json.Marshal(n.ary)
+		return jsonIter.Marshal(n.ary)
 	default:
 		return nil, ErrUnknownType
 	}
@@ -135,21 +135,23 @@ func (n *partialDoc) MarshalJSON() ([]byte, error) {
 	}
 	for i, k := range n.keys {
 		if i > 0 {
-			if _, err := buf.WriteString(", "); err != nil {
+			// TODO(TBD) dropped space as json-iterator doesn't not do compaction during marshal (which encoding/json does)
+			if _, err := buf.WriteString(","); err != nil {
 				return nil, err
 			}
 		}
-		key, err := json.Marshal(k)
+		key, err := jsonIter.Marshal(k)
 		if err != nil {
 			return nil, err
 		}
 		if _, err := buf.Write(key); err != nil {
 			return nil, err
 		}
-		if _, err := buf.WriteString(": "); err != nil {
+		// TODO(TBD) dropped space as json-iterator doesn't not do compaction during marshal (which encoding/json does)
+		if _, err := buf.WriteString(":"); err != nil {
 			return nil, err
 		}
-		value, err := json.Marshal(n.obj[k])
+		value, err := jsonIter.Marshal(n.obj[k])
 		if err != nil {
 			return nil, err
 		}
@@ -168,11 +170,12 @@ type syntaxError struct {
 }
 
 func (err *syntaxError) Error() string {
-	return err.msg
+	// FIXME: just a hack as long as json-iterator doesn't preserve the error type
+	return fmt.Sprintf("syntax error: %s", err.msg)
 }
 
 func (n *partialDoc) UnmarshalJSON(data []byte) error {
-	if err := json.Unmarshal(data, &n.obj); err != nil {
+	if err := jsonIter.Unmarshal(data, &n.obj); err != nil {
 		return err
 	}
 	buffer := bytes.NewBuffer(data)
@@ -252,7 +255,7 @@ func (n *lazyNode) intoDoc() (*partialDoc, error) {
 		return nil, ErrInvalid
 	}
 
-	err := json.Unmarshal(*n.raw, &n.doc)
+	err := jsonIter.Unmarshal(*n.raw, &n.doc)
 
 	if err != nil {
 		return nil, err
@@ -271,7 +274,7 @@ func (n *lazyNode) intoAry() (*partialArray, error) {
 		return nil, ErrInvalid
 	}
 
-	err := json.Unmarshal(*n.raw, &n.ary)
+	err := jsonIter.Unmarshal(*n.raw, &n.ary)
 
 	if err != nil {
 		return nil, err
@@ -302,7 +305,7 @@ func (n *lazyNode) tryDoc() bool {
 		return false
 	}
 
-	err := json.Unmarshal(*n.raw, &n.doc)
+	err := jsonIter.Unmarshal(*n.raw, &n.doc)
 
 	if err != nil {
 		return false
@@ -317,7 +320,7 @@ func (n *lazyNode) tryAry() bool {
 		return false
 	}
 
-	err := json.Unmarshal(*n.raw, &n.ary)
+	err := jsonIter.Unmarshal(*n.raw, &n.ary)
 
 	if err != nil {
 		return false
@@ -398,7 +401,7 @@ func (o Operation) Kind() string {
 	if obj, ok := o["op"]; ok && obj != nil {
 		var op string
 
-		err := json.Unmarshal(*obj, &op)
+		err := jsonIter.Unmarshal(*obj, &op)
 
 		if err != nil {
 			return "unknown"
@@ -415,7 +418,7 @@ func (o Operation) Path() (string, error) {
 	if obj, ok := o["path"]; ok && obj != nil {
 		var op string
 
-		err := json.Unmarshal(*obj, &op)
+		err := jsonIter.Unmarshal(*obj, &op)
 
 		if err != nil {
 			return "unknown", err
@@ -432,7 +435,7 @@ func (o Operation) From() (string, error) {
 	if obj, ok := o["from"]; ok && obj != nil {
 		var op string
 
-		err := json.Unmarshal(*obj, &op)
+		err := jsonIter.Unmarshal(*obj, &op)
 
 		if err != nil {
 			return "unknown", err
@@ -457,7 +460,7 @@ func (o Operation) ValueInterface() (interface{}, error) {
 	if obj, ok := o["value"]; ok && obj != nil {
 		var v interface{}
 
-		err := json.Unmarshal(*obj, &v)
+		err := jsonIter.Unmarshal(*obj, &v)
 
 		if err != nil {
 			return nil, err
@@ -1038,7 +1041,7 @@ func Equal(a, b []byte) bool {
 func DecodePatch(buf []byte) (Patch, error) {
 	var p Patch
 
-	err := json.Unmarshal(buf, &p)
+	err := jsonIter.Unmarshal(buf, &p)
 
 	if err != nil {
 		return nil, err
@@ -1079,7 +1082,7 @@ func (p Patch) ApplyIndentWithOptions(doc []byte, indent string, options *ApplyO
 		pd = &partialDoc{}
 	}
 
-	err := json.Unmarshal(doc, pd)
+	err := jsonIter.Unmarshal(doc, pd)
 
 	if err != nil {
 		return nil, err

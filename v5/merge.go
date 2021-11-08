@@ -5,7 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
+
+	jsoniter "github.com/json-iterator/go"
 )
+
+var jsonIter = jsoniter.ConfigCompatibleWithStandardLibrary
 
 func merge(cur, patch *lazyNode, mergeMerge bool) *lazyNode {
 	curDoc, err := cur.intoDoc()
@@ -119,11 +124,15 @@ func MergePatch(docData, patchData []byte) ([]byte, error) {
 func doMergePatch(docData, patchData []byte, mergeMerge bool) ([]byte, error) {
 	doc := &partialDoc{}
 
-	docErr := json.Unmarshal(docData, doc)
+	// FIXME: Can't be easily  moved to jsonIter, because json-iterator does not preserve the syntaxError type
+	// (added a hack in isSyntaxError for the poc)
+	docErr := jsonIter.Unmarshal(docData, doc)
 
 	patch := &partialDoc{}
 
-	patchErr := json.Unmarshal(patchData, patch)
+	// FIXME: Can't be easily moved to jsonIter, because json-iterator does not preserve the syntaxError type
+	// (added a hack in isSyntaxError for the poc)
+	patchErr := jsonIter.Unmarshal(patchData, patch)
 
 	if isSyntaxError(docErr) {
 		return nil, errBadJSONDoc
@@ -151,7 +160,7 @@ func doMergePatch(docData, patchData []byte, mergeMerge bool) ([]byte, error) {
 			}
 		} else {
 			patchAry := &partialArray{}
-			patchErr = json.Unmarshal(patchData, patchAry)
+			patchErr = jsonIter.Unmarshal(patchData, patchAry)
 
 			if patchErr != nil {
 				return nil, errBadJSONPatch
@@ -159,7 +168,7 @@ func doMergePatch(docData, patchData []byte, mergeMerge bool) ([]byte, error) {
 
 			pruneAryNulls(patchAry)
 
-			out, patchErr := json.Marshal(patchAry)
+			out, patchErr := jsonIter.Marshal(patchAry)
 
 			if patchErr != nil {
 				return nil, errBadJSONPatch
@@ -171,14 +180,22 @@ func doMergePatch(docData, patchData []byte, mergeMerge bool) ([]byte, error) {
 		mergeDocs(doc, patch, mergeMerge)
 	}
 
-	return json.Marshal(doc)
+	return jsonIter.Marshal(doc)
 }
 
 func isSyntaxError(err error) bool {
+	if err == nil {
+		return false
+	}
+
 	if _, ok := err.(*json.SyntaxError); ok {
 		return true
 	}
 	if _, ok := err.(*syntaxError); ok {
+		return true
+	}
+	// FIXME: just a hack as long as json-iterator doesn't preserve the error type
+	if strings.Contains(err.Error(), "syntax error") {
 		return true
 	}
 	return false
@@ -227,12 +244,12 @@ func createObjectMergePatch(originalJSON, modifiedJSON []byte) ([]byte, error) {
 	originalDoc := map[string]interface{}{}
 	modifiedDoc := map[string]interface{}{}
 
-	err := json.Unmarshal(originalJSON, &originalDoc)
+	err := jsonIter.Unmarshal(originalJSON, &originalDoc)
 	if err != nil {
 		return nil, errBadJSONDoc
 	}
 
-	err = json.Unmarshal(modifiedJSON, &modifiedDoc)
+	err = jsonIter.Unmarshal(modifiedJSON, &modifiedDoc)
 	if err != nil {
 		return nil, errBadJSONDoc
 	}
@@ -242,7 +259,7 @@ func createObjectMergePatch(originalJSON, modifiedJSON []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return json.Marshal(dest)
+	return jsonIter.Marshal(dest)
 }
 
 // createArrayMergePatch will return an array of merge-patch documents capable
@@ -253,12 +270,12 @@ func createArrayMergePatch(originalJSON, modifiedJSON []byte) ([]byte, error) {
 	originalDocs := []json.RawMessage{}
 	modifiedDocs := []json.RawMessage{}
 
-	err := json.Unmarshal(originalJSON, &originalDocs)
+	err := jsonIter.Unmarshal(originalJSON, &originalDocs)
 	if err != nil {
 		return nil, errBadJSONDoc
 	}
 
-	err = json.Unmarshal(modifiedJSON, &modifiedDocs)
+	err = jsonIter.Unmarshal(modifiedJSON, &modifiedDocs)
 	if err != nil {
 		return nil, errBadJSONDoc
 	}
@@ -281,7 +298,7 @@ func createArrayMergePatch(originalJSON, modifiedJSON []byte) ([]byte, error) {
 		result = append(result, json.RawMessage(patch))
 	}
 
-	return json.Marshal(result)
+	return jsonIter.Marshal(result)
 }
 
 // Returns true if the array matches (must be json types).
